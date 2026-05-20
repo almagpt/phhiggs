@@ -123,62 +123,77 @@ async function appGet(apiKey, path, query = {}) {
     return response.json();
 }
 
-/** Fetch completed generations from the Muapi account gallery. */
-export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
+/**
+ * GET /app/get_gallery_data (Muapi docs / OpenAPI)
+ * Query: media_type = all | image | video | audio, page >= 1
+ */
+export async function getGalleryData(apiKey, { mediaType = 'all', page = 1 } = {}) {
+    const type = mediaType || 'all';
     if (isBrowserProxy) {
-        const response = await fetch('/api/gallery', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-                apiKey,
-                media_type: mediaType,
-                page,
-            }),
+        const params = new URLSearchParams({
+            page: String(page),
+            media_type: type,
         });
+        const response = await muapiFetch(`/api/gallery?${params}`, apiKey);
         if (!response.ok) {
             const errText = await response.text();
             notifyAuthRequired(response.status, errText);
-            throw new Error(`gallery failed: ${response.status} - ${errText.slice(0, 120)}`);
+            throw new Error(`get_gallery_data failed: ${response.status} - ${errText.slice(0, 120)}`);
         }
         return response.json();
     }
-    return appGet(apiKey, 'get_gallery_data', { media_type: mediaType, page });
+    return appGet(apiKey, 'get_gallery_data', { media_type: type, page });
 }
 
+/** GET /app/get_run_history_data — usage log (supplement when gallery is empty). */
 export async function getRunHistoryData(apiKey, { page = 1 } = {}) {
     if (isBrowserProxy) {
-        const response = await fetch('/api/usage-history', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ apiKey, page }),
-        });
+        const params = new URLSearchParams({ page: String(page) });
+        const response = await muapiFetch(`/api/usage-history?${params}`, apiKey);
         if (!response.ok) {
             const errText = await response.text();
             notifyAuthRequired(response.status, errText);
-            throw new Error(`usage-history failed: ${response.status} - ${errText.slice(0, 120)}`);
+            throw new Error(`get_run_history_data failed: ${response.status} - ${errText.slice(0, 120)}`);
         }
         return response.json();
     }
     return appGet(apiKey, 'get_run_history_data', { page, include_count: 'false' });
 }
 
+async function fetchGalleryPages(apiKey, mediaType, maxItems = 50) {
+    const rows = [];
+    let page = 1;
+    let totalPages = 1;
+
+    while (page <= totalPages && rows.length < maxItems && page <= 10) {
+        const data = await getGalleryData(apiKey, { mediaType, page });
+        totalPages = data.total_pages || 1;
+        const batch = data.results || [];
+        rows.push(...batch);
+        if (!batch.length) break;
+        page += 1;
+    }
+
+    return rows.slice(0, maxItems);
+}
+
 function mapRowsToHistory(rows, mediaType) {
     return (rows || []).map((row) => galleryItemToHistoryEntry(row, mediaType)).filter(Boolean);
 }
 
-/** Gallery + usage history (newest first). */
+/** Gallery (official endpoint) + usage log fallback — newest first. */
 export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
+    if (!apiKey) return [];
+
     await ensureMuapiSession(apiKey);
 
     const buckets = [];
+    const typesToTry = mediaType ? [mediaType, 'all'] : ['all'];
 
-    const galleryTypes = mediaType ? [mediaType, 'all'] : ['all'];
-    for (const type of galleryTypes) {
+    for (const type of typesToTry) {
         try {
-            const data = await getGalleryData(apiKey, { mediaType: type, page: 1 });
-            const mapped = mapRowsToHistory(data.results, mediaType);
+            const rows = await fetchGalleryPages(apiKey, type, limit);
+            const mapped = mapRowsToHistory(rows, mediaType);
             if (mapped.length > 0) {
                 buckets.push(mapped);
                 break;
@@ -190,7 +205,7 @@ export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
 
     try {
         const runData = await getRunHistoryData(apiKey, { page: 1 });
-        buckets.push(mapRowsToHistory(runData.results, mediaType));
+        buckets.push(mapRowsToHistory(runData.results || [], mediaType));
     } catch (err) {
         console.warn('[muapi] get_run_history_data failed:', err.message);
     }

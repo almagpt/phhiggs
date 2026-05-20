@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { resolveMuapiKey } from '../../../lib/muapi-auth.js';
+import { fetchMuapiRunHistory } from '../../../lib/muapi-server.js';
 
-const MUAPI_BASE = 'https://api.muapi.ai';
+async function proxyUsage(apiKey, page) {
+    const { ok, status, data } = await fetchMuapiRunHistory(apiKey, { page });
+    return NextResponse.json(data, { status: ok ? 200 : status });
+}
 
 export async function GET(request) {
     const apiKey = await resolveMuapiKey(request);
@@ -9,21 +13,9 @@ export async function GET(request) {
         return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
     }
 
-    const { searchParams } = new URL(request.url);
-    const page = searchParams.get('page') || '1';
-
+    const page = Math.max(1, Number(new URL(request.url).searchParams.get('page') || '1'));
     try {
-        const response = await fetch(
-            `${MUAPI_BASE}/app/get_run_history_data?page=${page}&include_count=false`,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                },
-            },
-        );
-        const data = await response.json();
-        return NextResponse.json(data, { status: response.status });
+        return await proxyUsage(apiKey, page);
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
@@ -42,20 +34,9 @@ export async function POST(request) {
         return NextResponse.json({ detail: 'Not authenticated' }, { status: 401 });
     }
 
-    const page = String(body.page || 1);
-
+    const page = Math.max(1, Number(body.page || 1));
     try {
-        const response = await fetch(
-            `${MUAPI_BASE}/app/get_run_history_data?page=${page}&include_count=false`,
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                },
-            },
-        );
-        const data = await response.json();
-        return NextResponse.json(data, { status: response.status });
+        return await proxyUsage(apiKey, page);
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

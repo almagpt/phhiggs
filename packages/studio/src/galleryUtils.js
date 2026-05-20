@@ -1,9 +1,19 @@
-const COMPLETED_STATUSES = new Set([
-    'completed',
-    'succeeded',
-    'success',
-    'complete',
-    'done',
+/** Muapi gallery / usage log → studio history card (OpenAPI GalleryItemResponse). */
+
+const IN_PROGRESS_STATUSES = new Set([
+    'processing',
+    'pending',
+    'queued',
+    'running',
+    'in_progress',
+    'submitted',
+]);
+
+const FAILED_STATUSES = new Set([
+    'failed',
+    'error',
+    'cancelled',
+    'canceled',
 ]);
 
 const VIDEO_MODEL_HINT = /video|sora|kling|veo|seedance|wan|runway|luma|hailuo|pixverse|ovi|mochi/i;
@@ -29,21 +39,25 @@ function looksLikeMediaUrl(value) {
         v.startsWith('http://') ||
         v.startsWith('https://') ||
         v.startsWith('//') ||
-        /\.(mp4|webm|mov|m4v|png|jpe?g|webp|gif)(\?|$)/i.test(v)
+        /\.(mp4|webm|mov|m4v|png|jpe?g|webp|gif|wav|mp3)(\?|$)/i.test(v)
     );
 }
 
-/** Deep search for the first media URL in arbitrary Muapi payloads. */
+function normalizeUrl(value) {
+    if (!looksLikeMediaUrl(value)) return null;
+    const v = value.trim();
+    return v.startsWith('//') ? `https:${v}` : v;
+}
+
+/**
+ * Extract media URL from Muapi output_data, prediction poll payloads, etc.
+ * @see GET /api/v1/predictions/{id}/result — outputs[]
+ */
 export function extractMediaUrl(data, depth = 0) {
-    if (data == null || depth > 8) return null;
+    if (data == null || depth > 10) return null;
 
     if (typeof data === 'string') {
-        if (looksLikeMediaUrl(data)) {
-            return data.startsWith('//') ? `https:${data}` : data;
-        }
-        const parsed = parseMaybeJson(data);
-        if (parsed) return extractMediaUrl(parsed, depth + 1);
-        return null;
+        return normalizeUrl(data) || (parseMaybeJson(data) ? extractMediaUrl(parseMaybeJson(data), depth + 1) : null);
     }
 
     if (Array.isArray(data)) {
@@ -69,9 +83,14 @@ export function extractMediaUrl(data, depth = 0) {
         'result_url',
     ];
     for (const key of directKeys) {
-        if (looksLikeMediaUrl(data[key])) {
-            const v = data[key].trim();
-            return v.startsWith('//') ? `https:${v}` : v;
+        const found = normalizeUrl(data[key]);
+        if (found) return found;
+    }
+
+    if (Array.isArray(data.urls)) {
+        for (const u of data.urls) {
+            const found = extractMediaUrl(u, depth + 1);
+            if (found) return found;
         }
     }
 
@@ -115,38 +134,41 @@ function inferPrompt(output, input, item) {
     );
 }
 
-function isVideoMedia(item, url, mediaType) {
-    if (mediaType && mediaType !== 'video') return false;
+function isVideoMedia(item, url, filterType) {
+    if (filterType && filterType !== 'video') return false;
     if (item?.media_type === 'video') return true;
     if (url && /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return true;
     const model = item?.model_name || item?.model || '';
-    if (VIDEO_MODEL_HINT.test(model)) return true;
-    return mediaType !== 'image';
+    return VIDEO_MODEL_HINT.test(model) || filterType !== 'image';
 }
 
-function isImageMedia(item, url, mediaType) {
-    if (mediaType && mediaType !== 'image') return false;
+function isImageMedia(item, url, filterType) {
+    if (filterType && filterType !== 'image') return false;
     if (item?.media_type === 'image') return true;
     if (url && /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url)) return true;
     const model = item?.model_name || item?.model || '';
-    if (IMAGE_MODEL_HINT.test(model)) return true;
-    return mediaType !== 'video';
+    return IMAGE_MODEL_HINT.test(model) || filterType !== 'video';
 }
 
-/** Map a Muapi gallery / usage row to a studio history card entry. */
-export function galleryItemToHistoryEntry(item, mediaType) {
-    if (!item) return null;
+function shouldSkipGalleryRow(item) {
+    const status = (item?.status || '').toLowerCase();
+    if (!status) return false;
+    if (FAILED_STATUSES.has(status)) return true;
+    if (IN_PROGRESS_STATUSES.has(status)) return true;
+    return false;
+}
 
-    const status = (item.status || '').toLowerCase();
-    if (status && !COMPLETED_STATUSES.has(status)) return null;
+/** Map GET /app/get_gallery_data result row → studio history entry. */
+export function galleryItemToHistoryEntry(item, filterType) {
+    if (!item || shouldSkipGalleryRow(item)) return null;
 
     const output = normalizeOutputData(item);
     const input = normalizeInputData(item);
     const url = extractMediaUrl(output) || extractMediaUrl(item);
     if (!url) return null;
 
-    if (mediaType === 'video' && !isVideoMedia(item, url, mediaType)) return null;
-    if (mediaType === 'image' && !isImageMedia(item, url, mediaType)) return null;
+    if (filterType === 'video' && !isVideoMedia(item, url, filterType)) return null;
+    if (filterType === 'image' && !isImageMedia(item, url, filterType)) return null;
 
     return {
         id: item.id || item.request_id || url,
@@ -157,7 +179,7 @@ export function galleryItemToHistoryEntry(item, mediaType) {
     };
 }
 
-/** Merge local and remote history; remote first, dedupe by id/url, newest first. */
+/** Merge histories; remote first; dedupe by id/url; newest first. */
 export function mergeHistoryEntries(...lists) {
     const byKey = new Map();
     for (const list of lists) {
@@ -168,18 +190,5 @@ export function mergeHistoryEntries(...lists) {
     }
     return [...byKey.values()].sort(
         (a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0),
-    );
-}
-
-/** Normalize studio-history API payloads (array or { results/items/history }). */
-export function normalizeStudioHistoryPayload(data) {
-    if (Array.isArray(data)) return data;
-    if (!data || typeof data !== 'object') return [];
-    return (
-        data.results ||
-        data.items ||
-        data.history ||
-        data.data ||
-        []
     );
 }

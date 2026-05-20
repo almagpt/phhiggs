@@ -1,47 +1,38 @@
 import { NextResponse } from 'next/server';
 import { resolveMuapiKey } from '../../../lib/muapi-auth.js';
+import { fetchMuapiGallery, MUAPI_GALLERY_MEDIA_TYPES } from '../../../lib/muapi-server.js';
 
-const MUAPI_BASE = 'https://api.muapi.ai';
-
-async function proxyGallery(apiKey, { mediaType, page = 1 }) {
-    const params = new URLSearchParams({ page: String(page) });
-    if (mediaType) params.set('media_type', mediaType);
-
-    const response = await fetch(
-        `${MUAPI_BASE}/app/get_gallery_data?${params}`,
-        {
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-            },
-        },
-    );
-
-    const data = await response.json();
-    return NextResponse.json(data, { status: response.status });
+function parseGalleryQuery(searchParams, body = {}) {
+    const rawType = searchParams.get('media_type') || body.media_type || body.mediaType || 'all';
+    const mediaType = MUAPI_GALLERY_MEDIA_TYPES.includes(rawType) ? rawType : 'all';
+    const page = Math.max(1, Number(searchParams.get('page') || body.page || 1));
+    return { mediaType, page };
 }
 
+async function handleGallery(request, apiKey, query) {
+    const { ok, status, data } = await fetchMuapiGallery(apiKey, query);
+    return NextResponse.json(data, { status: ok ? 200 : status });
+}
+
+/** GET /api/gallery?media_type=video&page=1 — proxies Muapi GET /app/get_gallery_data */
 export async function GET(request) {
     const apiKey = await resolveMuapiKey(request);
     if (!apiKey) {
         return NextResponse.json(
-            { detail: 'Not authenticated. Save your Muapi API key in Settings.' },
+            { detail: 'Not authenticated. Add your Muapi API key (x-api-key) in Settings.' },
             { status: 401 },
         );
     }
 
     const { searchParams } = new URL(request.url);
-    const mediaType = searchParams.get('media_type') || undefined;
-    const page = Number(searchParams.get('page') || '1');
-
     try {
-        return await proxyGallery(apiKey, { mediaType, page });
+        return await handleGallery(request, apiKey, parseGalleryQuery(searchParams));
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }
 }
 
-/** POST carries apiKey in body when httpOnly cookie is not sent (Vercel-safe). */
+/** POST fallback: apiKey in JSON body when cookies are unavailable */
 export async function POST(request) {
     let body = {};
     try {
@@ -53,16 +44,13 @@ export async function POST(request) {
     const apiKey = await resolveMuapiKey(request, body.apiKey || body.key);
     if (!apiKey) {
         return NextResponse.json(
-            { detail: 'Not authenticated. Save your Muapi API key in Settings.' },
+            { detail: 'Not authenticated. Add your Muapi API key in Settings.' },
             { status: 401 },
         );
     }
 
-    const mediaType = body.media_type || body.mediaType;
-    const page = Number(body.page || 1);
-
     try {
-        return await proxyGallery(apiKey, { mediaType, page });
+        return await handleGallery(request, apiKey, parseGalleryQuery(new URLSearchParams(), body));
     } catch (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
     }

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { resolveMuapiKey } from '../../../../lib/muapi-auth.js';
-
-const MUAPI_BASE = 'https://api.muapi.ai';
+import { MUAPI_BASE } from '../../../../lib/muapi-server.js';
 
 function cleanHeaders(request) {
     const headers = new Headers(request.headers);

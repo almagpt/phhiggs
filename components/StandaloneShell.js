@@ -156,7 +156,6 @@ export default function StandaloneShell() {
     fetchBalance(stored);
     syncServerSession(stored).catch((err) => {
       console.warn('[StandaloneShell] Muapi session cookie not set:', err.message);
-      // Gallery still works via POST /api/gallery with apiKey in body
       setSessionReady(true);
     });
   }, [fetchBalance, syncServerSession]);
