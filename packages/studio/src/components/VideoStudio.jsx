@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { generateVideo, generateI2V, processV2V, uploadFile } from "../muapi.js";
+import {
+  generateVideo,
+  generateI2V,
+  processV2V,
+  uploadFile,
+  fetchGalleryHistory,
+  mergeHistoryEntries,
+  extractMediaUrl,
+} from "../muapi.js";
 import {
   t2vModels,
   i2vModels,
@@ -474,6 +482,21 @@ export default function VideoStudio({
     }
   }, [applyControlsForModel, defaultModel.id]);
 
+  // ── Sync gallery from Muapi account (same data as muapi.ai gallery) ─────
+  const syncGallery = useCallback(async () => {
+    if (!apiKey) return;
+    try {
+      const remote = await fetchGalleryHistory(apiKey, "video", 50);
+      setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
+    } catch (err) {
+      console.warn("[VideoStudio] Failed to sync Muapi gallery:", err);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    syncGallery();
+  }, [syncGallery]);
+
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -897,23 +920,24 @@ export default function VideoStudio({
           v2vParams.prompt = trimmedPrompt;
         }
         res = await processV2V(apiKey, v2vParams);
-        if (!res?.url) throw new Error("No video URL returned by API");
+        const mediaUrl = extractMediaUrl(res);
+        if (!mediaUrl) throw new Error("No video URL returned by API");
 
-        const genId = res.id || Date.now().toString();
+        const genId = res.request_id || res.id || Date.now().toString();
         setLastGenerationId(null);
         setLastGenerationModel(null);
         const entry = {
           id: genId,
-          url: res.url,
+          url: mediaUrl,
           prompt: currentModel?.hasPrompt ? trimmedPrompt : "",
           model: selectedModel,
           timestamp: new Date().toISOString(),
         };
         addToLocalHistory(entry);
-        showVideoInCanvas(res.url, selectedModel);
+        showVideoInCanvas(mediaUrl, selectedModel);
         if (onGenerationComplete)
           onGenerationComplete({
-            url: res.url,
+            url: mediaUrl,
             model: selectedModel,
             prompt: currentModel?.hasPrompt ? trimmedPrompt : "",
             type: "video",
@@ -935,9 +959,10 @@ export default function VideoStudio({
         if (showEffect && selectedEffect) i2vParams.name = selectedEffect;
 
         res = await generateI2V(apiKey, i2vParams);
-        if (!res?.url) throw new Error("No video URL returned by API");
+        const mediaUrl = extractMediaUrl(res);
+        if (!mediaUrl) throw new Error("No video URL returned by API");
 
-        const genId = res.id || Date.now().toString();
+        const genId = res.request_id || res.id || Date.now().toString();
         if (selectedModel === "seedance-v2.0-i2v") {
           setLastGenerationId(genId);
           setLastGenerationModel(selectedModel);
@@ -947,7 +972,7 @@ export default function VideoStudio({
         }
         const entry = {
           id: genId,
-          url: res.url,
+          url: mediaUrl,
           prompt: trimmedPrompt,
           model: selectedModel,
           aspect_ratio: selectedAr,
@@ -955,10 +980,10 @@ export default function VideoStudio({
           timestamp: new Date().toISOString(),
         };
         addToLocalHistory(entry);
-        showVideoInCanvas(res.url, selectedModel);
+        showVideoInCanvas(mediaUrl, selectedModel);
         if (onGenerationComplete)
           onGenerationComplete({
-            url: res.url,
+            url: mediaUrl,
             model: selectedModel,
             prompt: trimmedPrompt,
             type: "video",
@@ -982,9 +1007,10 @@ export default function VideoStudio({
         if (selectedMode) params.mode = selectedMode;
 
         res = await generateVideo(apiKey, params);
-        if (!res?.url) throw new Error("No video URL returned by API");
+        const mediaUrl = extractMediaUrl(res);
+        if (!mediaUrl) throw new Error("No video URL returned by API");
 
-        const genId = res.id || Date.now().toString();
+        const genId = res.request_id || res.id || Date.now().toString();
         if (
           selectedModel === "seedance-v2.0-t2v" ||
           selectedModel === "seedance-v2.0-i2v"
@@ -997,7 +1023,7 @@ export default function VideoStudio({
         }
         const entry = {
           id: genId,
-          url: res.url,
+          url: mediaUrl,
           prompt: trimmedPrompt,
           model: selectedModel,
           aspect_ratio: selectedAr,
@@ -1005,15 +1031,16 @@ export default function VideoStudio({
           timestamp: new Date().toISOString(),
         };
         addToLocalHistory(entry);
-        showVideoInCanvas(res.url, selectedModel);
+        showVideoInCanvas(mediaUrl, selectedModel);
         if (onGenerationComplete)
           onGenerationComplete({
-            url: res.url,
+            url: mediaUrl,
             model: selectedModel,
             prompt: trimmedPrompt,
             type: "video",
           });
       }
+      await syncGallery();
     } catch (e) {
       hadError = true;
       console.error("[VideoStudio]", e);
@@ -1042,6 +1069,7 @@ export default function VideoStudio({
     addToLocalHistory,
     showVideoInCanvas,
     onGenerationComplete,
+    syncGallery,
   ]);
 
   // ── reset to prompt bar ───────────────────────────────────────────────────
@@ -1125,6 +1153,7 @@ export default function VideoStudio({
                     className="w-full aspect-video object-cover bg-black/40 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => setFullscreenUrl(entry.url)}
                     controls={false}
+                    crossOrigin="anonymous"
                     loop
                     muted
                     playsInline

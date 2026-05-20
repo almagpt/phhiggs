@@ -1,4 +1,7 @@
 import { getModelById, getVideoModelById, getI2IModelById, getI2VModelById, getV2VModelById, getLipSyncModelById } from './models.js';
+import { extractMediaUrl, galleryItemToHistoryEntry, mergeHistoryEntries } from './galleryUtils.js';
+
+export { extractMediaUrl, galleryItemToHistoryEntry, mergeHistoryEntries } from './galleryUtils.js';
 
 // In an http(s) browser we route through the host app's proxy (Next.js routes
 // under /api/* re-issue the call server-side) so api.muapi.ai CORS is bypassed.
@@ -56,8 +59,36 @@ async function submitAndPoll(endpoint, payload, key, onRequestId, maxAttempts = 
     if (!requestId) return submitData;
     if (onRequestId) onRequestId(requestId);
     const result = await pollForResult(requestId, key, maxAttempts);
-    const outputUrl = result.outputs?.[0] || result.url || result.output?.url;
-    return { ...result, url: outputUrl };
+    const outputUrl = extractMediaUrl(result);
+    return { ...result, url: outputUrl, request_id: requestId, id: requestId };
+}
+
+/** Fetch completed generations from the Muapi account gallery. */
+export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
+    const params = new URLSearchParams({ page: String(page) });
+    if (mediaType) params.set('media_type', mediaType);
+
+    const response = await fetch(`${BASE_URL}/app/get_gallery_data?${params}`, {
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+        },
+    });
+    if (!response.ok) {
+        const errText = await response.text();
+        notifyAuthRequired(response.status, errText);
+        throw new Error(`Failed to fetch gallery: ${response.status} - ${errText.slice(0, 100)}`);
+    }
+    return response.json();
+}
+
+/** Gallery items as studio history entries (newest first). */
+export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
+    const data = await getGalleryData(apiKey, { mediaType, page: 1 });
+    const entries = (data.results || [])
+        .map(galleryItemToHistoryEntry)
+        .filter(Boolean);
+    return mergeHistoryEntries(entries).slice(0, limit);
 }
 
 export async function generateImage(apiKey, params) {

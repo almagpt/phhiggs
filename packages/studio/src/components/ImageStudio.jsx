@@ -1,7 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { generateImage, generateI2I, uploadFile } from "../muapi.js";
+import {
+  generateImage,
+  generateI2I,
+  uploadFile,
+  fetchGalleryHistory,
+  mergeHistoryEntries,
+  extractMediaUrl,
+} from "../muapi.js";
 import {
   t2iModels,
   i2iModels,
@@ -819,6 +826,20 @@ export default function ImageStudio({
     }
   }, []);
 
+  const syncGallery = useCallback(async () => {
+    if (!apiKey) return;
+    try {
+      const remote = await fetchGalleryHistory(apiKey, "image", 50);
+      setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
+    } catch (err) {
+      console.warn("[ImageStudio] Failed to sync Muapi gallery:", err);
+    }
+  }, [apiKey]);
+
+  useEffect(() => {
+    syncGallery();
+  }, [syncGallery]);
+
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1074,24 +1095,25 @@ export default function ImageStudio({
       );
 
       results.forEach((res) => {
-        if (res && res.url) {
-          const entry = {
-            id: res.id || Math.random().toString(36).substring(7),
-            url: res.url,
-            prompt: prompt.trim(),
-            model: selectedModelId,
-            aspect_ratio: selectedAr,
-            timestamp: new Date().toISOString(),
-          };
-          addToHistory(entry);
-          onGenerationComplete?.({
-            url: res.url,
-            model: selectedModelId,
-            prompt: prompt.trim(),
-            type: "image",
-          });
-        }
+        const mediaUrl = extractMediaUrl(res);
+        if (!mediaUrl) return;
+        const entry = {
+          id: res.request_id || res.id || Math.random().toString(36).substring(7),
+          url: mediaUrl,
+          prompt: prompt.trim(),
+          model: selectedModelId,
+          aspect_ratio: selectedAr,
+          timestamp: new Date().toISOString(),
+        };
+        addToHistory(entry);
+        onGenerationComplete?.({
+          url: mediaUrl,
+          model: selectedModelId,
+          prompt: prompt.trim(),
+          type: "image",
+        });
       });
+      await syncGallery();
     } catch (e) {
       console.error("[ImageStudio] Generation failed:", e);
       setGenerateError(e.message.slice(0, 80));
