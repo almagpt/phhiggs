@@ -2535,7 +2535,7 @@ export const t2vModels = [
     "inputs": {
       "prompt": { "type": "string", "title": "Prompt", "name": "prompt", "description": "The prompt to generate the video" },
       "aspect_ratio": { "enum": ["16:9", "9:16"], "title": "Aspect Ratio", "name": "aspect_ratio", "type": "string", "description": "Aspect ratio of the output video.", "default": "16:9" },
-      "duration": { "enum": [4, 8, 12, 16], "title": "Duration", "name": "duration", "type": "int", "description": "The duration of the generated video in seconds", "default": 8 }
+      "duration": { "enum": [4, 8, 12, 16, 20], "title": "Duration", "name": "duration", "type": "int", "description": "The duration of the generated video in seconds", "default": 8 }
     }
   },
   {
@@ -2544,7 +2544,7 @@ export const t2vModels = [
     "inputs": {
       "prompt": { "type": "string", "title": "Prompt", "name": "prompt", "description": "The prompt to generate the video" },
       "aspect_ratio": { "enum": ["16:9", "9:16"], "title": "Aspect Ratio", "name": "aspect_ratio", "type": "string", "description": "Aspect ratio of the output video.", "default": "16:9" },
-      "duration": { "enum": [10, 15, 25], "title": "Duration", "name": "duration", "type": "int", "description": "The duration of the generated video in seconds. Currently 25 seconds supports 720p only.", "default": 10 },
+      "duration": { "enum": [4, 8, 12, 16, 20], "title": "Duration", "name": "duration", "type": "int", "description": "The duration of the generated video in seconds", "default": 8 },
       "resolution": { "enum": ["720p", "1080p"], "title": "Resolution", "name": "resolution", "type": "string", "description": "The resolution of the generated video.", "default": "720p" }
     }
   },
@@ -6290,16 +6290,10 @@ export const i2vModels = [
           4,
           8,
           12,
-          16
+          16,
+          20
         ],
         "default": 8
-      },
-      "remove_watermark": {
-        "type": "boolean",
-        "title": "Remove Watermark",
-        "name": "remove_watermark",
-        "description": "When enabled, removes watermarks from the generated video.",
-        "default": true
       }
     }
   },
@@ -6354,13 +6348,15 @@ export const i2vModels = [
         "type": "int",
         "title": "Duration",
         "name": "duration",
-        "description": "The duration of the generated video in seconds. Currently 25 seconds supports 720p only.",
+        "description": "The duration of the generated video in seconds",
         "enum": [
-          10,
-          15,
-          25
+          4,
+          8,
+          12,
+          16,
+          20
         ],
-        "default": 10
+        "default": 8
       },
       "resolution": {
         "type": "string",
@@ -6372,13 +6368,6 @@ export const i2vModels = [
           "1080p"
         ],
         "default": "720p"
-      },
-      "remove_watermark": {
-        "type": "boolean",
-        "title": "Remove Watermark",
-        "name": "remove_watermark",
-        "description": "When enabled, removes watermarks from the generated video.",
-        "default": true
       }
     }
   },
