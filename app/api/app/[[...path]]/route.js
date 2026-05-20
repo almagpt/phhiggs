@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getMuapiKeyFromRequest } from '../../../../lib/muapi-auth.js';
+import { resolveMuapiKey } from '../../../../lib/muapi-auth.js';
 
 const MUAPI_BASE = 'https://api.muapi.ai';
 
@@ -20,7 +20,7 @@ function unauthorized() {
 
 async function proxyToMuapi(request, targetUrl) {
     const headers = cleanHeaders(request);
-    const apiKey = getMuapiKeyFromRequest(request);
+    const apiKey = await resolveMuapiKey(request);
     if (!apiKey) return unauthorized();
     headers.set('x-api-key', apiKey);
 
@@ -44,7 +44,7 @@ export async function GET(request, { params }) {
     const { search } = new URL(request.url);
     const targetUrl = `${MUAPI_BASE}/app/${effectivePath}${search}`;
 
-    const apiKey = getMuapiKeyFromRequest(request);
+    const apiKey = await resolveMuapiKey(request);
     if (!apiKey) return unauthorized();
 
     const headers = cleanHeaders(request);

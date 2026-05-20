@@ -21,18 +21,22 @@ const PROXY_WF_BASE = '/api/workflow';
 
 /** Persist API key as httpOnly cookie on the Next server (Vercel-safe auth). */
 export async function ensureMuapiSession(apiKey) {
-    if (!apiKey || typeof window === 'undefined') return;
+    if (!apiKey || typeof window === 'undefined') return false;
     try {
-        await fetch('/api/muapi-session', {
+        const res = await fetch('/api/muapi-session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ apiKey }),
             credentials: 'include',
         });
+        return res.ok;
     } catch (err) {
         console.warn('[muapi] ensureMuapiSession failed:', err.message);
+        return false;
     }
 }
+
+const isBrowserProxy = typeof window !== 'undefined' && window.location?.protocol?.startsWith('http');
 
 /** Browser fetch to our Next proxy: send key header + session cookie. */
 function muapiFetch(url, apiKey, init = {}) {
@@ -121,10 +125,42 @@ async function appGet(apiKey, path, query = {}) {
 
 /** Fetch completed generations from the Muapi account gallery. */
 export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
+    if (isBrowserProxy) {
+        const response = await fetch('/api/gallery', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+                apiKey,
+                media_type: mediaType,
+                page,
+            }),
+        });
+        if (!response.ok) {
+            const errText = await response.text();
+            notifyAuthRequired(response.status, errText);
+            throw new Error(`gallery failed: ${response.status} - ${errText.slice(0, 120)}`);
+        }
+        return response.json();
+    }
     return appGet(apiKey, 'get_gallery_data', { media_type: mediaType, page });
 }
 
 export async function getRunHistoryData(apiKey, { page = 1 } = {}) {
+    if (isBrowserProxy) {
+        const response = await fetch('/api/usage-history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ apiKey, page }),
+        });
+        if (!response.ok) {
+            const errText = await response.text();
+            notifyAuthRequired(response.status, errText);
+            throw new Error(`usage-history failed: ${response.status} - ${errText.slice(0, 120)}`);
+        }
+        return response.json();
+    }
     return appGet(apiKey, 'get_run_history_data', { page, include_count: 'false' });
 }
 

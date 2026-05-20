@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { MUAPI_KEY_COOKIE, muapiKeyCookieOptions } from '../../../lib/muapi-auth.js';
 
 export async function POST(request) {
@@ -14,13 +15,14 @@ export async function POST(request) {
         return NextResponse.json({ detail: 'apiKey is required' }, { status: 400 });
     }
 
-    const response = NextResponse.json({ ok: true });
-    response.cookies.set(MUAPI_KEY_COOKIE, apiKey, muapiKeyCookieOptions());
-    return response;
+    const cookieStore = await cookies();
+    cookieStore.set(MUAPI_KEY_COOKIE, apiKey, muapiKeyCookieOptions());
+
+    return NextResponse.json({ ok: true });
 }
 
 export async function DELETE() {
-    const response = NextResponse.json({ ok: true });
-    response.cookies.set(MUAPI_KEY_COOKIE, '', { ...muapiKeyCookieOptions(), maxAge: 0 });
-    return response;
+    const cookieStore = await cookies();
+    cookieStore.set(MUAPI_KEY_COOKIE, '', { ...muapiKeyCookieOptions(), maxAge: 0 });
+    return NextResponse.json({ ok: true });
 }

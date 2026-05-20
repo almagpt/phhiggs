@@ -60,6 +60,7 @@ export default function StandaloneShell() {
   };
   
   const [apiKey, setApiKey] = useState(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [activeTab, setActiveTab] = useState(getInitialTab());
 
   const [balance, setBalance] = useState(null);
@@ -139,28 +140,36 @@ export default function StandaloneShell() {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || `Session sync failed (${res.status})`);
     }
+    setSessionReady(true);
   }, []);
 
   useEffect(() => {
     setHasMounted(true);
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return;
+    if (!stored) {
+      setSessionReady(false);
+      return;
+    }
 
     setApiKey(stored);
+    setSessionReady(false);
     fetchBalance(stored);
     syncServerSession(stored).catch((err) => {
       console.warn('[StandaloneShell] Muapi session cookie not set:', err.message);
+      // Gallery still works via POST /api/gallery with apiKey in body
+      setSessionReady(true);
     });
   }, [fetchBalance, syncServerSession]);
 
   const handleKeySave = useCallback(async (key) => {
     localStorage.setItem(STORAGE_KEY, key);
     setApiKey(key);
+    setSessionReady(false);
     try {
       await syncServerSession(key);
     } catch (err) {
       console.error('[StandaloneShell] Failed to save server session:', err);
-      alert('Could not save API session. Gallery sync may fail until you try again in Settings.');
+      setSessionReady(true);
     }
     fetchBalance(key);
   }, [fetchBalance, syncServerSession]);
@@ -169,6 +178,7 @@ export default function StandaloneShell() {
     localStorage.removeItem(STORAGE_KEY);
     setApiKey(null);
     setBalance(null);
+    setSessionReady(false);
     fetch('/api/muapi-session', { method: 'DELETE', credentials: 'include' }).catch(() => {});
   }, []);
 
@@ -337,8 +347,8 @@ export default function StandaloneShell() {
 
       {/* Studio Content */}
       <div className="flex-1 min-h-0 relative overflow-hidden">
-        {activeTab === 'image'   && <ImageStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
-        {activeTab === 'video'   && <VideoStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'image'   && sessionReady && <ImageStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
+        {activeTab === 'video'   && sessionReady && <VideoStudio   apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'lipsync' && <LipSyncStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
         {activeTab === 'cinema'  && <CinemaStudio  apiKey={apiKey} />}
         {activeTab === 'marketing' && <MarketingStudio apiKey={apiKey} droppedFiles={droppedFiles} onFilesHandled={handleFilesHandled} />}
