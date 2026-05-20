@@ -5,9 +5,9 @@ import {
   generateImage,
   generateI2I,
   uploadFile,
-  fetchGalleryHistory,
   mergeHistoryEntries,
   extractMediaUrl,
+  scheduleGallerySync,
 } from "../muapi.js";
 import {
   t2iModels,
@@ -826,19 +826,14 @@ export default function ImageStudio({
     }
   }, []);
 
-  const syncGallery = useCallback(async () => {
-    if (!apiKey) return;
-    try {
-      const remote = await fetchGalleryHistory(apiKey, "image", 50);
-      setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
-    } catch (err) {
-      console.warn("[ImageStudio] Failed to sync Muapi gallery:", err);
-    }
-  }, [apiKey]);
+  const applyRemoteHistory = useCallback((remote) => {
+    setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
+  }, []);
 
   useEffect(() => {
-    syncGallery();
-  }, [syncGallery]);
+    if (!apiKey) return undefined;
+    return scheduleGallerySync(apiKey, "image", applyRemoteHistory);
+  }, [apiKey, applyRemoteHistory]);
 
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
@@ -1113,7 +1108,7 @@ export default function ImageStudio({
           type: "image",
         });
       });
-      await syncGallery();
+      scheduleGallerySync(apiKey, "image", applyRemoteHistory);
     } catch (e) {
       console.error("[ImageStudio] Generation failed:", e);
       setGenerateError(e.message.slice(0, 80));

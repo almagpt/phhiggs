@@ -6,9 +6,9 @@ import {
   generateI2V,
   processV2V,
   uploadFile,
-  fetchGalleryHistory,
   mergeHistoryEntries,
   extractMediaUrl,
+  scheduleGallerySync,
 } from "../muapi.js";
 import {
   t2vModels,
@@ -482,20 +482,15 @@ export default function VideoStudio({
     }
   }, [applyControlsForModel, defaultModel.id]);
 
-  // ── Sync gallery from Muapi account (same data as muapi.ai gallery) ─────
-  const syncGallery = useCallback(async () => {
-    if (!apiKey) return;
-    try {
-      const remote = await fetchGalleryHistory(apiKey, "video", 50);
-      setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
-    } catch (err) {
-      console.warn("[VideoStudio] Failed to sync Muapi gallery:", err);
-    }
-  }, [apiKey]);
+  // ── Sync gallery from Muapi (retries — API may lag after generation) ───
+  const applyRemoteHistory = useCallback((remote) => {
+    setLocalHistory((prev) => mergeHistoryEntries(remote, prev).slice(0, 50));
+  }, []);
 
   useEffect(() => {
-    syncGallery();
-  }, [syncGallery]);
+    if (!apiKey) return undefined;
+    return scheduleGallerySync(apiKey, "video", applyRemoteHistory);
+  }, [apiKey, applyRemoteHistory]);
 
   // ── Adjust height on load ────────────────────────────────────────────────
   useEffect(() => {
@@ -1040,7 +1035,7 @@ export default function VideoStudio({
             type: "video",
           });
       }
-      await syncGallery();
+      scheduleGallerySync(apiKey, "video", applyRemoteHistory);
     } catch (e) {
       hadError = true;
       console.error("[VideoStudio]", e);
@@ -1069,7 +1064,7 @@ export default function VideoStudio({
     addToLocalHistory,
     showVideoInCanvas,
     onGenerationComplete,
-    syncGallery,
+    applyRemoteHistory,
   ]);
 
   // ── reset to prompt bar ───────────────────────────────────────────────────
@@ -1153,7 +1148,6 @@ export default function VideoStudio({
                     className="w-full aspect-video object-cover bg-black/40 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => setFullscreenUrl(entry.url)}
                     controls={false}
-                    crossOrigin="anonymous"
                     loop
                     muted
                     playsInline

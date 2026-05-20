@@ -1,7 +1,17 @@
 import { getModelById, getVideoModelById, getI2IModelById, getI2VModelById, getV2VModelById, getLipSyncModelById } from './models.js';
-import { extractMediaUrl, galleryItemToHistoryEntry, mergeHistoryEntries } from './galleryUtils.js';
+import {
+    extractMediaUrl,
+    galleryItemToHistoryEntry,
+    mergeHistoryEntries,
+    normalizeStudioHistoryPayload,
+} from './galleryUtils.js';
 
-export { extractMediaUrl, galleryItemToHistoryEntry, mergeHistoryEntries } from './galleryUtils.js';
+export {
+    extractMediaUrl,
+    galleryItemToHistoryEntry,
+    mergeHistoryEntries,
+    normalizeStudioHistoryPayload,
+} from './galleryUtils.js';
 
 // In an http(s) browser we route through the host app's proxy (Next.js routes
 // under /api/* re-issue the call server-side) so api.muapi.ai CORS is bypassed.
@@ -63,12 +73,15 @@ async function submitAndPoll(endpoint, payload, key, onRequestId, maxAttempts = 
     return { ...result, url: outputUrl, request_id: requestId, id: requestId };
 }
 
-/** Fetch completed generations from the Muapi account gallery. */
-export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
-    const params = new URLSearchParams({ page: String(page) });
-    if (mediaType) params.set('media_type', mediaType);
-
-    const response = await fetch(`${BASE_URL}/app/get_gallery_data?${params}`, {
+async function appGet(apiKey, path, query = {}) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined && value !== null && value !== '') {
+            params.set(key, String(value));
+        }
+    }
+    const qs = params.toString();
+    const response = await fetch(`${BASE_URL}/app/${path}${qs ? `?${qs}` : ''}`, {
         headers: {
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
@@ -77,18 +90,93 @@ export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
     if (!response.ok) {
         const errText = await response.text();
         notifyAuthRequired(response.status, errText);
-        throw new Error(`Failed to fetch gallery: ${response.status} - ${errText.slice(0, 100)}`);
+        throw new Error(`${path} failed: ${response.status} - ${errText.slice(0, 120)}`);
     }
     return response.json();
 }
 
-/** Gallery items as studio history entries (newest first). */
+/** Fetch completed generations from the Muapi account gallery. */
+export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
+    return appGet(apiKey, 'get_gallery_data', { media_type: mediaType, page });
+}
+
+export async function getRunHistoryData(apiKey, { page = 1 } = {}) {
+    return appGet(apiKey, 'get_run_history_data', { page, include_count: 'false' });
+}
+
+export async function getStudioHistory(apiKey, { generationType, limit = 50 } = {}) {
+    return appGet(apiKey, 'studio-history', { generation_type: generationType, limit });
+}
+
+function mapRowsToHistory(rows, mediaType) {
+    return (rows || []).map((row) => galleryItemToHistoryEntry(row, mediaType)).filter(Boolean);
+}
+
+/** Gallery + usage history + studio history (newest first). */
 export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
-    const data = await getGalleryData(apiKey, { mediaType, page: 1 });
-    const entries = (data.results || [])
-        .map(galleryItemToHistoryEntry)
-        .filter(Boolean);
-    return mergeHistoryEntries(entries).slice(0, limit);
+    const buckets = [];
+
+    const galleryTypes = mediaType ? [mediaType, 'all'] : ['all'];
+    for (const type of galleryTypes) {
+        try {
+            const data = await getGalleryData(apiKey, { mediaType: type, page: 1 });
+            const mapped = mapRowsToHistory(data.results, mediaType);
+            if (mapped.length > 0) {
+                buckets.push(mapped);
+                break;
+            }
+        } catch (err) {
+            console.warn('[muapi] get_gallery_data failed:', type, err.message);
+        }
+    }
+
+    try {
+        const runData = await getRunHistoryData(apiKey, { page: 1 });
+        buckets.push(mapRowsToHistory(runData.results, mediaType));
+    } catch (err) {
+        console.warn('[muapi] get_run_history_data failed:', err.message);
+    }
+
+    try {
+        const studioData = await getStudioHistory(apiKey, {
+            generationType: mediaType,
+            limit,
+        });
+        buckets.push(mapRowsToHistory(normalizeStudioHistoryPayload(studioData), mediaType));
+    } catch (err) {
+        console.warn('[muapi] studio-history failed:', err.message);
+    }
+
+    return mergeHistoryEntries(...buckets).slice(0, limit);
+}
+
+/**
+ * Sync gallery on mount and after generation (Muapi may index items with delay).
+ * @returns cleanup function
+ */
+export function scheduleGallerySync(apiKey, mediaType, onRemote) {
+    if (!apiKey || typeof onRemote !== 'function') return () => {};
+
+    let cancelled = false;
+    const run = async () => {
+        if (cancelled) return;
+        try {
+            const remote = await fetchGalleryHistory(apiKey, mediaType, 50);
+            if (!cancelled) onRemote(remote);
+        } catch (err) {
+            console.warn('[muapi] gallery sync failed:', err.message);
+        }
+    };
+
+    run();
+    const t1 = setTimeout(run, 2500);
+    const t2 = setTimeout(run, 8000);
+
+    return () => {
+        cancelled = true;
+        clearTimeout(t1);
+        clearTimeout(t2);
+    };
 }
 
 export async function generateImage(apiKey, params) {
