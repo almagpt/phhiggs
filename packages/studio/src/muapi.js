@@ -19,6 +19,21 @@ const BASE_URL = (typeof window !== 'undefined' && window.location?.protocol?.st
     : 'https://api.muapi.ai';
 const PROXY_WF_BASE = '/api/workflow';
 
+/** Persist API key as httpOnly cookie on the Next server (Vercel-safe auth). */
+export async function ensureMuapiSession(apiKey) {
+    if (!apiKey || typeof window === 'undefined') return;
+    try {
+        await fetch('/api/muapi-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiKey }),
+            credentials: 'include',
+        });
+    } catch (err) {
+        console.warn('[muapi] ensureMuapiSession failed:', err.message);
+    }
+}
+
 /** Browser fetch to our Next proxy: send key header + session cookie. */
 function muapiFetch(url, apiKey, init = {}) {
     const headers = new Headers(init.headers || {});
@@ -117,8 +132,10 @@ function mapRowsToHistory(rows, mediaType) {
     return (rows || []).map((row) => galleryItemToHistoryEntry(row, mediaType)).filter(Boolean);
 }
 
-/** Gallery + usage history + studio history (newest first). */
+/** Gallery + usage history (newest first). */
 export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
+    await ensureMuapiSession(apiKey);
+
     const buckets = [];
 
     const galleryTypes = mediaType ? [mediaType, 'all'] : ['all'];

@@ -128,29 +128,48 @@ export default function StandaloneShell() {
     }
   }, []);
 
+  const syncServerSession = useCallback(async (key) => {
+    const res = await fetch('/api/muapi-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: key }),
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `Session sync failed (${res.status})`);
+    }
+  }, []);
+
   useEffect(() => {
     setHasMounted(true);
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      setApiKey(stored);
-      fetchBalance(stored);
-      // Sync cookie immediately on mount to establish identity for background requests
-      document.cookie = `muapi_key=${stored}; path=/; max-age=31536000; SameSite=Lax`;
-    }
-  }, [fetchBalance]);
+    if (!stored) return;
 
-  const handleKeySave = useCallback((key) => {
+    setApiKey(stored);
+    fetchBalance(stored);
+    syncServerSession(stored).catch((err) => {
+      console.warn('[StandaloneShell] Muapi session cookie not set:', err.message);
+    });
+  }, [fetchBalance, syncServerSession]);
+
+  const handleKeySave = useCallback(async (key) => {
     localStorage.setItem(STORAGE_KEY, key);
     setApiKey(key);
+    try {
+      await syncServerSession(key);
+    } catch (err) {
+      console.error('[StandaloneShell] Failed to save server session:', err);
+      alert('Could not save API session. Gallery sync may fail until you try again in Settings.');
+    }
     fetchBalance(key);
-    document.cookie = `muapi_key=${key}; path=/; max-age=31536000; SameSite=Lax`;
-  }, [fetchBalance]);
+  }, [fetchBalance, syncServerSession]);
 
   const handleKeyChange = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
     setApiKey(null);
     setBalance(null);
-    document.cookie = "muapi_key=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    fetch('/api/muapi-session', { method: 'DELETE', credentials: 'include' }).catch(() => {});
   }, []);
 
   // Inject API key into all outgoing Axios requests (prop-based approach)

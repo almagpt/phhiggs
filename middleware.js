@@ -1,15 +1,8 @@
 import { NextResponse } from 'next/server';
-
-function resolveApiKey(request) {
-    return (
-        request.headers.get('x-api-key') ||
-        request.cookies.get('muapi_key')?.value ||
-        null
-    );
-}
+import { getMuapiKeyFromRequest } from './lib/muapi-auth.js';
 
 function withApiKeyHeaders(request) {
-    const apiKey = resolveApiKey(request);
+    const apiKey = getMuapiKeyFromRequest(request);
     if (!apiKey) return null;
     const headers = new Headers(request.headers);
     headers.set('x-api-key', apiKey);
@@ -33,21 +26,9 @@ export function middleware(request) {
         return NextResponse.rewrite(targetUrl);
     }
 
-    if (url.pathname.startsWith('/api/app')) {
-        const headers = withApiKeyHeaders(request);
-        if (headers) {
-            return NextResponse.next({ request: { headers } });
-        }
-    }
-
     return NextResponse.next();
 }
 
-// Match the paths we want to proxy
 export const config = {
-    matcher: [
-        '/api/workflow/:path*', 
-        '/api/app/:path*',
-        '/api/v1/:path*'
-    ],
+    matcher: ['/api/workflow/:path*', '/api/v1/:path*'],
 };
