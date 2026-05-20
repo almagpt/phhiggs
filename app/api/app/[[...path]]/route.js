@@ -3,13 +3,15 @@ import { NextResponse } from 'next/server';
 const MUAPI_BASE = 'https://api.muapi.ai';
 
 function getApiKey(request) {
-    // Priority 1: Direct x-api-key header
-    const headerKey = request.headers.get('x-api-key');
-    if (headerKey) return headerKey;
+    const headerKey =
+        request.headers.get('x-api-key') ||
+        request.headers.get('X-API-Key');
+    if (headerKey) return headerKey.trim();
 
-    // Priority 2: muapi_key cookie (used by the fixed builder library)
     const cookieKey = request.cookies.get('muapi_key')?.value;
-    return cookieKey;
+    if (cookieKey) return cookieKey.trim();
+
+    return null;
 }
 
 function cleanHeaders(request) {
@@ -34,7 +36,13 @@ export async function GET(request, { params }) {
     const headers = cleanHeaders(request);
 
     const apiKey = getApiKey(request);
-    if (apiKey) headers.set('x-api-key', apiKey);
+    if (!apiKey) {
+        return NextResponse.json(
+            { detail: 'Not authenticated. Add your Muapi API key in Settings.' },
+            { status: 401 },
+        );
+    }
+    headers.set('x-api-key', apiKey);
 
     try {
         const response = await fetch(targetUrl, {
@@ -75,7 +83,13 @@ export async function POST(request, { params }) {
     const headers = cleanHeaders(request);
 
     const apiKey = getApiKey(request);
-    if (apiKey) headers.set('x-api-key', apiKey);
+    if (!apiKey) {
+        return NextResponse.json(
+            { detail: 'Not authenticated. Add your Muapi API key in Settings.' },
+            { status: 401 },
+        );
+    }
+    headers.set('x-api-key', apiKey);
 
     try {
         const body = await request.arrayBuffer();
@@ -103,7 +117,13 @@ export async function DELETE(request, { params }) {
     const headers = cleanHeaders(request);
 
     const apiKey = getApiKey(request);
-    if (apiKey) headers.set('x-api-key', apiKey);
+    if (!apiKey) {
+        return NextResponse.json(
+            { detail: 'Not authenticated. Add your Muapi API key in Settings.' },
+            { status: 401 },
+        );
+    }
+    headers.set('x-api-key', apiKey);
 
     try {
         const response = await fetch(targetUrl, {
@@ -128,7 +148,13 @@ export async function PUT(request, { params }) {
     const headers = cleanHeaders(request);
 
     const apiKey = getApiKey(request);
-    if (apiKey) headers.set('x-api-key', apiKey);
+    if (!apiKey) {
+        return NextResponse.json(
+            { detail: 'Not authenticated. Add your Muapi API key in Settings.' },
+            { status: 401 },
+        );
+    }
+    headers.set('x-api-key', apiKey);
 
     try {
         const body = await request.arrayBuffer();

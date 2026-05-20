@@ -3,14 +3,12 @@ import {
     extractMediaUrl,
     galleryItemToHistoryEntry,
     mergeHistoryEntries,
-    normalizeStudioHistoryPayload,
 } from './galleryUtils.js';
 
 export {
     extractMediaUrl,
     galleryItemToHistoryEntry,
     mergeHistoryEntries,
-    normalizeStudioHistoryPayload,
 } from './galleryUtils.js';
 
 // In an http(s) browser we route through the host app's proxy (Next.js routes
@@ -20,6 +18,22 @@ const BASE_URL = (typeof window !== 'undefined' && window.location?.protocol?.st
     ? '/api'
     : 'https://api.muapi.ai';
 const PROXY_WF_BASE = '/api/workflow';
+
+/** Browser fetch to our Next proxy: send key header + session cookie. */
+function muapiFetch(url, apiKey, init = {}) {
+    const headers = new Headers(init.headers || {});
+    if (!headers.has('Content-Type')) {
+        headers.set('Content-Type', 'application/json');
+    }
+    if (apiKey) {
+        headers.set('x-api-key', apiKey);
+    }
+    return fetch(url, {
+        ...init,
+        headers,
+        credentials: 'include',
+    });
+}
 
 function notifyAuthRequired(status, detail) {
     if (typeof window === 'undefined') return;
@@ -32,9 +46,7 @@ async function pollForResult(requestId, key, maxAttempts = 900, interval = 2000)
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         await new Promise(resolve => setTimeout(resolve, interval));
         try {
-            const response = await fetch(pollUrl, {
-                headers: { 'Content-Type': 'application/json', 'x-api-key': key }
-            });
+            const response = await muapiFetch(pollUrl, key);
             if (!response.ok) {
                 const errText = await response.text();
                 if (response.status >= 500) continue;
@@ -54,10 +66,9 @@ async function pollForResult(requestId, key, maxAttempts = 900, interval = 2000)
 
 async function submitAndPoll(endpoint, payload, key, onRequestId, maxAttempts = 60) {
     const url = `${BASE_URL}/api/v1/${endpoint}`;
-    const response = await fetch(url, {
+    const response = await muapiFetch(url, key, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': key },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
     });
     if (!response.ok) {
         const errText = await response.text();
@@ -81,12 +92,10 @@ async function appGet(apiKey, path, query = {}) {
         }
     }
     const qs = params.toString();
-    const response = await fetch(`${BASE_URL}/app/${path}${qs ? `?${qs}` : ''}`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-        },
-    });
+    const response = await muapiFetch(
+        `${BASE_URL}/app/${path}${qs ? `?${qs}` : ''}`,
+        apiKey,
+    );
     if (!response.ok) {
         const errText = await response.text();
         notifyAuthRequired(response.status, errText);
@@ -102,10 +111,6 @@ export async function getGalleryData(apiKey, { mediaType, page = 1 } = {}) {
 
 export async function getRunHistoryData(apiKey, { page = 1 } = {}) {
     return appGet(apiKey, 'get_run_history_data', { page, include_count: 'false' });
-}
-
-export async function getStudioHistory(apiKey, { generationType, limit = 50 } = {}) {
-    return appGet(apiKey, 'studio-history', { generation_type: generationType, limit });
 }
 
 function mapRowsToHistory(rows, mediaType) {
@@ -135,16 +140,6 @@ export async function fetchGalleryHistory(apiKey, mediaType, limit = 50) {
         buckets.push(mapRowsToHistory(runData.results, mediaType));
     } catch (err) {
         console.warn('[muapi] get_run_history_data failed:', err.message);
-    }
-
-    try {
-        const studioData = await getStudioHistory(apiKey, {
-            generationType: mediaType,
-            limit,
-        });
-        buckets.push(mapRowsToHistory(normalizeStudioHistoryPayload(studioData), mediaType));
-    } catch (err) {
-        console.warn('[muapi] studio-history failed:', err.message);
     }
 
     return mergeHistoryEntries(...buckets).slice(0, limit);
@@ -347,12 +342,7 @@ export function uploadFile(apiKey, file, onProgress) {
 }
 
 export async function getUserBalance(apiKey) {
-    const response = await fetch(`${BASE_URL}/api/v1/account/balance`, {
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey
-        }
-    });
+    const response = await muapiFetch(`${BASE_URL}/api/v1/account/balance`, apiKey);
     if (!response.ok) {
         const errText = await response.text();
         notifyAuthRequired(response.status, errText);
