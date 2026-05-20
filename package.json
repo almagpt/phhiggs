@@ -120,7 +120,8 @@
     "react-hot-toast": "^2.4.1",
     "studio": "*",
     "workflow-builder": "file:./packages/Vibe-Workflow/packages/workflow-builder",
-    "ai-agent": "file:./packages/Open-Poe-AI/packages/agents"
+    "ai-agent": "file:./packages/Open-Poe-AI/packages/agents",
+    "design-agent": "file:./packages/Open-AI-Design-Agent/packages/design-agent"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
